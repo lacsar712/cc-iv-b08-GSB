@@ -6,8 +6,14 @@ from datetime import datetime, timezone
 import psycopg
 from psycopg.rows import dict_row
 
-from db import DSN, SCHEMA, connect
+from db import DSN, SCHEMA, connect, gate_state, load_config
 from rules import judge
+
+
+def gate_open(conn) -> bool:
+    """一刀切暂停整场扫描:闸口关闭(暂停或阈值空)时工人停止认领。"""
+    open_, _ = gate_state(load_config(conn))
+    return open_
 
 
 def claim_id(conn, scan_id: int | None) -> bool:
@@ -48,7 +54,8 @@ def poll_loop():
         try:
             with connect() as conn:
                 conn.execute(SCHEMA)
-                drain(conn)
+                if gate_open(conn):
+                    drain(conn)
                 conn.commit()
         except Exception as exc:
             print(f"poll error: {exc}", flush=True)
@@ -62,9 +69,10 @@ def listen_loop():
                 conn.execute("LISTEN iv_scan_new")
                 for note in conn.notifies():
                     with connect() as work:
-                        if note is not None:
-                            claim_id(work, int(note.payload))
-                        drain(work)
+                        if gate_open(work):
+                            if note is not None:
+                                claim_id(work, int(note.payload))
+                            drain(work)
                         work.commit()
         except Exception as exc:
             print(f"listen error: {exc}", flush=True)
