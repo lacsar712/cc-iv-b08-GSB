@@ -8,6 +8,7 @@ from psycopg.rows import dict_row
 
 from db import DSN, SCHEMA, connect
 from rules import judge
+from cleaning import evaluate
 
 
 def claim_id(conn, scan_id: int | None) -> bool:
@@ -48,6 +49,8 @@ def poll_loop():
         try:
             with connect() as conn:
                 conn.execute(SCHEMA)
+                # 超期检测挂在工人心跳上:无人访问时也能及时自动扳闸
+                evaluate(conn)
                 drain(conn)
                 conn.commit()
         except Exception as exc:
